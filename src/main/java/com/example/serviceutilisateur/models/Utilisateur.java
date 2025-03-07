@@ -44,6 +44,8 @@ public class Utilisateur {
 
     private String image;
 
+    private String phone;
+
     @ManyToOne
     @JoinColumn(name = "role_id", nullable = false)
     @JsonBackReference
@@ -81,7 +83,8 @@ public class Utilisateur {
         LocalDateTime now = LocalDateTime.now();
         createdAt = now;
         updatedAt = now;
-        status = Status.INACTIF;
+        status = Status.EN_ATTENTE;
+        generateOtp();
     }
 
     @PreUpdate
@@ -90,21 +93,21 @@ public class Utilisateur {
     }
 
     public void generateOtp() {
-        this.otp = String.format("%06d", (int) (Math.random() * 900000) + 100000);  // Génère un OTP de 6 chiffres sous forme de String
+        this.otp = String.format("%06d", (int) (Math.random() * 900000) + 100000);
         this.otpExpirationDate = LocalDateTime.now().plusMinutes(10);
     }
 
     public boolean verifyOtp(String otpInput) {
         if (this.otp != null && this.otp.equals(otpInput) && LocalDateTime.now().isBefore(this.otpExpirationDate)) {
+            activateAccount();
             return true;
         }
         return false;
     }
 
     public void activateAccount() {
-        if (this.status == Status.INACTIF) {
+        if (this.status == Status.EN_ATTENTE) {
             this.status = Status.ACTIF;
         }
     }
-
 }

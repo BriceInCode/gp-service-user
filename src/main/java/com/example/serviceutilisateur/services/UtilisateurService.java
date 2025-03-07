@@ -18,4 +18,5 @@ public interface UtilisateurService {
     ResponseDTO<String> resetPassword(String email, String newPassword);
     ResponseDTO<Utilisateur> changeProfileImage(long id, MultipartFile newImageFile);
     String handleImageUpload(MultipartFile imageFile, String prefix, String existingImageUrl) throws IOException;
+    ResponseDTO<Utilisateur> getUtilisateurByEmail(String email);
 }

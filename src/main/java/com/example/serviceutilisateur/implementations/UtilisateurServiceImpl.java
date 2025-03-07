@@ -176,6 +176,22 @@ public class UtilisateurServiceImpl implements UtilisateurService {
         }
     }
 
+    @Override
+    public ResponseDTO<Utilisateur> getUtilisateurByEmail(String email) {
+        try {
+            Utilisateur utilisateur = utilisateurRepository.findByEmail(email);
+
+            if (utilisateur != null) {
+                return new ResponseDTO<>(ResponseDTO.SUCCESS, "Utilisateur trouvé", utilisateur);
+            } else {
+                return new ResponseDTO<>(ResponseDTO.ERROR, "Aucun utilisateur trouvé avec cet email", null);
+            }
+        } catch (Exception e) {
+            return handleException(e, "recherche de l'utilisateur par email", null);
+        }
+    }
+
+
     // Méthode de génération de mot de passe par défaut
     private String generateDefaultPassword() {
         return "changeme@" + Year.now().getValue();

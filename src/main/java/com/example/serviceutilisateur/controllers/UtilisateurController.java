@@ -41,6 +41,16 @@ public class UtilisateurController {
         return utilisateurService.getUtilisateurById(id);
     }
 
+    @Operation(summary = "Obtenir un utilisateur par email")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Utilisateur récupéré avec succès"),
+            @ApiResponse(responseCode = "404", description = "Utilisateur non trouvé avec cet email")
+    })
+    @GetMapping("/email/{email}")
+    public ResponseDTO<Utilisateur> getUtilisateurByEmail(@PathVariable String email) {
+        return utilisateurService.getUtilisateurByEmail(email);
+    }
+
     @Operation(summary = "Créer un nouvel utilisateur")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Utilisateur créé avec succès"),
