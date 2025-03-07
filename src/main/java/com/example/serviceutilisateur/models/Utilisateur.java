@@ -9,6 +9,8 @@ import jakarta.validation.constraints.Size;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 @Entity
@@ -71,12 +73,8 @@ public class Utilisateur {
     @Column(nullable = false)
     private Status status;
 
-    @Column(name = "otp")
-    @Size(min = 6, max = 6, message = "Le message OTP doit avoir contenir exactement 6 chiffres.")
-    private String otp;
-
-    @Column(name = "otp_expiration_date")
-    private LocalDateTime otpExpirationDate;
+    @OneToMany(mappedBy = "utilisateur", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OTP> otps = new ArrayList<>();
 
     @PrePersist
     public void prePersist() {
@@ -84,7 +82,8 @@ public class Utilisateur {
         createdAt = now;
         updatedAt = now;
         status = Status.EN_ATTENTE;
-        generateOtp();
+        OTP newOtp = OTP.generateOtpForUser(this);
+        otps.add(newOtp);
     }
 
     @PreUpdate
@@ -92,17 +91,11 @@ public class Utilisateur {
         updatedAt = LocalDateTime.now();
     }
 
-    public void generateOtp() {
-        this.otp = String.format("%06d", (int) (Math.random() * 900000) + 100000);
-        this.otpExpirationDate = LocalDateTime.now().plusMinutes(10);
-    }
-
-    public boolean verifyOtp(String otpInput) {
-        if (this.otp != null && this.otp.equals(otpInput) && LocalDateTime.now().isBefore(this.otpExpirationDate)) {
-            activateAccount();
-            return true;
-        }
-        return false;
+    public OTP getActiveOtp() {
+        return otps.stream()
+                .filter(OTP::isActive)
+                .findFirst()
+                .orElse(null);
     }
 
     public void activateAccount() {
