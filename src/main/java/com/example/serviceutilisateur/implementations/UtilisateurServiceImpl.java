@@ -2,11 +2,13 @@ package com.example.serviceutilisateur.implementations;
 
 import com.example.serviceutilisateur.enumerations.Status;
 import com.example.serviceutilisateur.execptions.ResourceNotFoundException;
+import com.example.serviceutilisateur.models.Role;
 import com.example.serviceutilisateur.models.Utilisateur;
+import com.example.serviceutilisateur.repositories.RoleRepository;
 import com.example.serviceutilisateur.repositories.UtilisateurRepository;
 import com.example.serviceutilisateur.responses.ResponseDTO;
+import com.example.serviceutilisateur.services.OtpService;
 import com.example.serviceutilisateur.services.UtilisateurService;
-import com.example.serviceutilisateur.services.RoleService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -16,6 +18,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.time.Year;
 import java.util.List;
 import java.util.Optional;
@@ -27,69 +30,65 @@ public class UtilisateurServiceImpl implements UtilisateurService {
     private UtilisateurRepository utilisateurRepository;
 
     @Autowired
-    private RoleService roleService;
+    private RoleRepository roleRepository;
 
-    private static final String IMAGE_UPLOAD_DIR = "/path/to/upload/directory/";
+    @Autowired
+    private OtpService otpService;
+
+    private static final String IMAGE_UPLOAD_DIR = "uploads";
     private static final long MAX_IMAGE_SIZE = 4 * 1024 * 1024; // 4 Mo
     private static final String[] ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/jpg"};
 
-    // Méthode générique pour gérer les erreurs
-    private <T> ResponseDTO<T> handleException(Exception e, String action, T data) {
-        return new ResponseDTO<>(ResponseDTO.ERROR, "Erreur lors de " + action + ": " + e.getMessage(), data);
+    private <T> ResponseDTO<T> handleException(Exception e, String action) {
+        return new ResponseDTO<>(ResponseDTO.ERROR, "Erreur lors de " + action + ": " + e.getMessage());
     }
 
     @Override
-    public ResponseDTO<Utilisateur> createUtilisateur(Utilisateur utilisateur, MultipartFile imageFile) {
+    public ResponseDTO<Utilisateur> createUtilisateur(Utilisateur utilisateur) {
         try {
-            if (utilisateurExistsByEmail(utilisateur.getEmail())) {
-                return new ResponseDTO<>(ResponseDTO.ERROR, "L'email est déjà utilisé", null);
+            ResponseDTO<String> verificationResponse = verifyUtilisateurExistence(utilisateur);
+            if (verificationResponse != null) {
+                return new ResponseDTO<>(ResponseDTO.ERROR, verificationResponse.getMessage(), null);
             }
-            if (utilisateurExistsByPseudo(utilisateur.getPseudo())) {
-                return new ResponseDTO<>(ResponseDTO.ERROR, "Le pseudo est déjà utilisé", null);
+            if (utilisateur.getRole() == null || !roleRepository.existsById(utilisateur.getRole().getId())) {
+                return new ResponseDTO<>(ResponseDTO.ERROR, "Le rôle de l'utilisateur est invalide.", null);
             }
-
-            utilisateur.setMotDePasse(generateDefaultPassword());
-            String imageUrl = handleImageUpload(imageFile, "user-", null);
-            utilisateur.setImage(imageUrl);
-            utilisateur.setStatus(Status.INACTIF);
-
+            Optional<Role> roleOptional = roleRepository.findById(utilisateur.getRole().getId());
+            roleOptional.ifPresentOrElse(utilisateur::setRole, () -> {
+                throw new IllegalArgumentException("Le rôle spécifié n'existe pas.");
+            });
+            initializeUtilisateur(utilisateur);
             Utilisateur savedUtilisateur = utilisateurRepository.save(utilisateur);
-            return new ResponseDTO<>(ResponseDTO.CREATED, "Utilisateur créé avec succès", savedUtilisateur);
-        } catch (IOException e) {
-            return handleException(e, "l'upload de l'image", null);
+            if (savedUtilisateur.getId() == 0) {
+                return new ResponseDTO<>(ResponseDTO.ERROR, "Échec de l'enregistrement de l'utilisateur.", null);
+            }
+            boolean otpGenerated = otpService.generateOtp(savedUtilisateur.getId());
+            if (!otpGenerated) {
+                return new ResponseDTO<>(ResponseDTO.ERROR, "Erreur lors de la génération de l'OTP.", null);
+            }
+            return new ResponseDTO<>(ResponseDTO.SUCCESS, "Utilisateur créé avec succès.", savedUtilisateur);
+        } catch (Exception e) {
+            return handleException(e, "la création de l'utilisateur");
         }
     }
 
     @Override
-    public ResponseDTO<Utilisateur> updateUtilisateur(long id, Utilisateur utilisateur, MultipartFile imageFile) {
+    public ResponseDTO<Utilisateur> updateUtilisateur(long id, Utilisateur utilisateur) {
         try {
             Utilisateur existingUtilisateur = utilisateurRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Utilisateur non trouvé avec l'id : " + id));
-
-            // Validation de l'email et du pseudo
-            if (!existingUtilisateur.getEmail().equals(utilisateur.getEmail()) && utilisateurExistsByEmail(utilisateur.getEmail())) {
-                return new ResponseDTO<>(ResponseDTO.ERROR, "L'email est déjà utilisé", null);
-            }
-            if (!existingUtilisateur.getPseudo().equals(utilisateur.getPseudo()) && utilisateurExistsByPseudo(utilisateur.getPseudo())) {
-                return new ResponseDTO<>(ResponseDTO.ERROR, "Le pseudo est déjà utilisé", null);
-            }
-
-            // Gestion de l'image
-            String newImageUrl = handleImageUpload(imageFile, "user-", existingUtilisateur.getImage());
-            utilisateur.setImage(newImageUrl);
-
-            // Mise à jour des autres propriétés
-            existingUtilisateur.setNom(utilisateur.getNom());
-            existingUtilisateur.setPrenom(utilisateur.getPrenom());
-            existingUtilisateur.setEmail(utilisateur.getEmail());
-            existingUtilisateur.setPseudo(utilisateur.getPseudo());
-            existingUtilisateur.setUpdatedAt(utilisateur.getUpdatedAt());
-            existingUtilisateur.setStatus(utilisateur.getStatus());
-
+            if (utilisateur.getPseudo() != null) existingUtilisateur.setPseudo(utilisateur.getPseudo());
+            if (utilisateur.getMotDePasse() != null) existingUtilisateur.setMotDePasse(utilisateur.getMotDePasse());
+            if (utilisateur.getEmail() != null) existingUtilisateur.setEmail(utilisateur.getEmail());
+            if (utilisateur.getPrenom() != null) existingUtilisateur.setPrenom(utilisateur.getPrenom());
+            if (utilisateur.getNom() != null) existingUtilisateur.setNom(utilisateur.getNom());
+            if (utilisateur.getPhone() != null) existingUtilisateur.setPhone(utilisateur.getPhone());
+            if (utilisateur.getRole() != null) existingUtilisateur.setRole(utilisateur.getRole());
+            existingUtilisateur.setUpdatedAt(LocalDateTime.now());
             Utilisateur updatedUtilisateur = utilisateurRepository.save(existingUtilisateur);
-            return new ResponseDTO<>(ResponseDTO.SUCCESS, "Utilisateur mis à jour avec succès", updatedUtilisateur);
-        } catch (IOException e) {
-            return handleException(e, "l'upload de l'image", null);
+            return new ResponseDTO<>(ResponseDTO.SUCCESS, "Utilisateur mis à jour avec succès.", updatedUtilisateur);
+        } catch (Exception e) {
+            return handleException(e, "la mise à jour de l'utilisateur");
         }
     }
 
@@ -111,11 +110,10 @@ public class UtilisateurServiceImpl implements UtilisateurService {
         try {
             Utilisateur utilisateur = utilisateurRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Utilisateur non trouvé avec l'ID : " + id));
-
             utilisateurRepository.delete(utilisateur);
             return new ResponseDTO<>(ResponseDTO.SUCCESS, "Utilisateur supprimé avec succès", null);
         } catch (Exception e) {
-            return handleException(e, "suppression de l'utilisateur", null);
+            return handleException(e, "la suppression de l'utilisateur");
         }
     }
 
@@ -124,7 +122,6 @@ public class UtilisateurServiceImpl implements UtilisateurService {
         try {
             Utilisateur utilisateur = utilisateurRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Utilisateur non trouvé avec l'id : " + id));
-
             if (utilisateur.getStatus() != status) {
                 utilisateur.setStatus(status);
                 utilisateurRepository.save(utilisateur);
@@ -133,7 +130,7 @@ public class UtilisateurServiceImpl implements UtilisateurService {
                 return new ResponseDTO<>(ResponseDTO.WARNING, "Le statut est déjà le même", null);
             }
         } catch (Exception e) {
-            return handleException(e, "changement de statut de l'utilisateur", null);
+            return handleException(e, "le changement de statut de l'utilisateur");
         }
     }
 
@@ -144,21 +141,19 @@ public class UtilisateurServiceImpl implements UtilisateurService {
             if (utilisateur == null) {
                 return new ResponseDTO<>(ResponseDTO.ERROR, "Utilisateur avec l'email " + email + " non trouvé.", null);
             }
-
             if (utilisateur.getMotDePasse().equals(newPassword)) {
                 return new ResponseDTO<>(ResponseDTO.WARNING, "Le nouveau mot de passe est identique à l'ancien. Aucun changement effectué.", null);
             }
-
             utilisateur.setMotDePasse(newPassword);
             utilisateurRepository.save(utilisateur);
             return new ResponseDTO<>(ResponseDTO.SUCCESS, "Mot de passe réinitialisé avec succès.", null);
         } catch (Exception e) {
-            return handleException(e, "réinitialisation du mot de passe", null);
+            return handleException(e, "la réinitialisation du mot de passe");
         }
     }
 
     @Override
-    public ResponseDTO<Utilisateur> changeProfileImage(long id, MultipartFile newImageFile) {
+    public ResponseDTO<Utilisateur> updateProfileImage(long id, MultipartFile newImageFile) {
         try {
             Utilisateur utilisateur = utilisateurRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Utilisateur non trouvé avec l'id : " + id));
@@ -166,46 +161,45 @@ public class UtilisateurServiceImpl implements UtilisateurService {
             if (utilisateur.getImage() != null) {
                 deleteImage(utilisateur.getImage());
             }
-
             String newImageUrl = handleImageUpload(newImageFile, "user-", utilisateur.getImage());
             utilisateur.setImage(newImageUrl);
             utilisateurRepository.save(utilisateur);
             return new ResponseDTO<>(ResponseDTO.SUCCESS, "Photo de profil mise à jour avec succès.", utilisateur);
         } catch (IOException e) {
-            return handleException(e, "l'upload de la nouvelle image", null);
+            return handleException(e, "l'upload de la nouvelle image");
         }
     }
 
-    @Override
-    public ResponseDTO<Utilisateur> getUtilisateurByEmail(String email) {
-        try {
-            Utilisateur utilisateur = utilisateurRepository.findByEmail(email);
-
-            if (utilisateur != null) {
-                return new ResponseDTO<>(ResponseDTO.SUCCESS, "Utilisateur trouvé", utilisateur);
-            } else {
-                return new ResponseDTO<>(ResponseDTO.ERROR, "Aucun utilisateur trouvé avec cet email", null);
-            }
-        } catch (Exception e) {
-            return handleException(e, "recherche de l'utilisateur par email", null);
-        }
-    }
-
-
-    // Méthode de génération de mot de passe par défaut
     private String generateDefaultPassword() {
         return "changeme@" + Year.now().getValue();
     }
 
-    private boolean utilisateurExistsByEmail(String email) {
-        return utilisateurRepository.existsByEmail(email);
+    private void initializeUtilisateur(Utilisateur utilisateur) {
+        utilisateur.setCreatedAt(LocalDateTime.now());
+        utilisateur.setMotDePasse(generateDefaultPassword());
+        utilisateur.setStatus(Status.EN_ATTENTE);
     }
 
-    private boolean utilisateurExistsByPseudo(String pseudo) {
-        return utilisateurRepository.existsByPseudo(pseudo);
+    private ResponseDTO<String> verifyUtilisateurExistence(Utilisateur utilisateur) {
+        if (utilisateurRepository.existsByEmail(utilisateur.getEmail())) {
+            return new ResponseDTO<>(ResponseDTO.ERROR, "Un utilisateur avec cet email existe déjà.", null);
+        }
+        if (utilisateurRepository.existsByPseudo(utilisateur.getPseudo())) {
+            return new ResponseDTO<>(ResponseDTO.ERROR, "Un utilisateur avec ce pseudo existe déjà.", null);
+        }
+        if (utilisateurRepository.existsByPhone(utilisateur.getPhone())) {
+            return new ResponseDTO<>(ResponseDTO.ERROR, "Un utilisateur avec ce numéro de téléphone existe déjà.", null);
+        }
+        return null;
     }
 
-    // Méthode pour gérer l'upload d'images
+    private void deleteImage(String imageUrl) {
+        File existingImage = new File(imageUrl);
+        if (existingImage.exists()) {
+            existingImage.delete();
+        }
+    }
+
     public String handleImageUpload(MultipartFile imageFile, String prefix, String existingImageUrl) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
             if (imageFile.getSize() > MAX_IMAGE_SIZE) {
@@ -220,8 +214,8 @@ public class UtilisateurServiceImpl implements UtilisateurService {
             String timestamp = String.valueOf(System.currentTimeMillis());
             String newFileName = prefix + timestamp + "-" + imageFile.getOriginalFilename();
             Path path = Paths.get(IMAGE_UPLOAD_DIR + newFileName);
+            Files.createDirectories(path.getParent());
             Files.copy(imageFile.getInputStream(), path);
-
             return path.toString();
         }
         return existingImageUrl;
@@ -229,17 +223,25 @@ public class UtilisateurServiceImpl implements UtilisateurService {
 
     private boolean isAllowedImageType(String fileType) {
         for (String allowedType : ALLOWED_IMAGE_TYPES) {
-            if (allowedType.equals(fileType)) {
+            if (allowedType.equalsIgnoreCase(fileType)) {
                 return true;
             }
         }
         return false;
     }
 
-    private void deleteImage(String imageUrl) {
-        File existingImage = new File(imageUrl);
-        if (existingImage.exists()) {
-            existingImage.delete();
+    @Override
+    public ResponseDTO<Utilisateur> getUtilisateurByEmail(String email) {
+        try {
+            Utilisateur utilisateur = utilisateurRepository.findByEmail(email);
+
+            if (utilisateur != null) {
+                return new ResponseDTO<>(ResponseDTO.SUCCESS, "Utilisateur trouvé", utilisateur);
+            } else {
+                return new ResponseDTO<>(ResponseDTO.ERROR, "Aucun utilisateur trouvé avec cet email", null);
+            }
+        } catch (Exception e) {
+            return handleException(e, "recherche de l'utilisateur par email");
         }
     }
 }

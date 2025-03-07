@@ -9,14 +9,14 @@ import java.io.IOException;
 import java.util.List;
 
 public interface UtilisateurService {
-    ResponseDTO<Utilisateur> createUtilisateur(Utilisateur utilisateur, MultipartFile imageFile);
-    ResponseDTO<Utilisateur> updateUtilisateur(long id, Utilisateur utilisateur, MultipartFile imageFile);
+    ResponseDTO<Utilisateur> createUtilisateur(Utilisateur utilisateur);
+    ResponseDTO<Utilisateur> updateUtilisateur(long id, Utilisateur utilisateur);
     ResponseDTO<Utilisateur> getUtilisateurById(long id);
     ResponseDTO<List<Utilisateur>> getAllUtilisateurs();
     ResponseDTO<String> deleteUtilisateur(long id);
     ResponseDTO<String> changeUtilisateurStatus(long id, Status status);
     ResponseDTO<String> resetPassword(String email, String newPassword);
-    ResponseDTO<Utilisateur> changeProfileImage(long id, MultipartFile newImageFile);
+    ResponseDTO<Utilisateur> updateProfileImage(long id, MultipartFile newImageFile);
     String handleImageUpload(MultipartFile imageFile, String prefix, String existingImageUrl) throws IOException;
     ResponseDTO<Utilisateur> getUtilisateurByEmail(String email);
 }

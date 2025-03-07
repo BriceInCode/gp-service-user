@@ -1,6 +1,5 @@
 package com.example.serviceutilisateur.models;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
@@ -56,7 +55,7 @@ public class Role {
         updatedAt = LocalDateTime.now();
     }
 
-    public long getId() {
+    public Long getId() {
         return id;
     }
 
